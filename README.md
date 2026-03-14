@@ -6,5 +6,8 @@ AnnaSlipper is a free python based slipper for roblox allowing you to create uni
 * # Modification Settings
 * pixels to change: 1% - 100%
 * Number of copies: ammount of copies to make will be saved in a new folder in downloads named AnnaSlipper
+* exclude transparent pixels: will exclude transparent pixels
 ** Output size (optional)
+* out put base name: lets you change the name
 * when enabled you can change the size of your output image
+* paste support
