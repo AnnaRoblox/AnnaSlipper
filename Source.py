@@ -1,7 +1,6 @@
-# source code
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageGrab
 import random
 import os
 
@@ -9,7 +8,7 @@ class ImageModifierApp:
     def __init__(self, root):
         self.root = root
         self.root.title("AnnaSlipper")
-        self.root.geometry("800x600") # Default size
+        self.root.geometry("800x650") # Slightly taller default size to fit new elements
         root.state('zoomed') 
 
         # Variables
@@ -19,6 +18,10 @@ class ImageModifierApp:
         self.resize_var = tk.BooleanVar()
         self.modify_all_var = tk.BooleanVar()
         self.exclude_transparency_var = tk.BooleanVar()
+
+        # Keyboard Bindings for Pasting
+        self.root.bind("<Control-v>", self.paste_image)
+        self.root.bind("<Command-v>", self.paste_image) # For Mac users
 
         # --- Scrollable Layout Setup ---
         
@@ -56,7 +59,11 @@ class ImageModifierApp:
         lbl_title = tk.Label(self.scrollable_frame, text="AnnaSlipper For Roblox", font=("Helvetica", 16, "bold"))
         lbl_title.pack(pady=10)
 
-        # 2. Image Preview Area (Renamed canvas to preview_canvas)
+        # Instruction label for pasting
+        lbl_paste_info = tk.Label(self.scrollable_frame, text="(You can also Ctrl+V / Cmd+V to paste an image)", fg="#666")
+        lbl_paste_info.pack(pady=0)
+
+        # 2. Image Preview Area
         self.preview_canvas = tk.Canvas(self.scrollable_frame, width=400, height=300, bg="#e0e0e0", relief="sunken", bd=2)
         self.preview_canvas.pack(pady=10)
         self.lbl_preview = tk.Label(self.preview_canvas, text="No Image Loaded", bg="#e0e0e0", fg="#555")
@@ -102,6 +109,10 @@ class ImageModifierApp:
         self.ent_copies.insert(0, "1") # Default to 1 copy
         self.ent_copies.grid(row=6, column=1, sticky="w", pady=5)
 
+        # Custom Output File Name Input
+        tk.Label(frame_controls, text="Output Base Name:").grid(row=7, column=0, sticky="w", pady=5)
+        self.ent_basename = tk.Entry(frame_controls, width=30)
+        self.ent_basename.grid(row=7, column=1, sticky="w", pady=5)
 
         # 5. Resize Settings Frame
         frame_resize = tk.LabelFrame(self.scrollable_frame, text="Output Size (Optional)", padx=10, pady=10)
@@ -124,57 +135,95 @@ class ImageModifierApp:
                                      bg="#4CAF50", fg="white", font=("Helvetica", 12, "bold"), state="disabled")
         self.btn_process.pack(pady=15, fill="x", padx=20)
 
-        # Status Bar (Parented to root to stay visible)
+        # Status Bar
         self.status_var = tk.StringVar()
         self.status_var.set("Ready")
         lbl_status = tk.Label(root, textvariable=self.status_var, bd=1, relief="sunken", anchor="w")
         lbl_status.pack(side="bottom", fill="x")
 
     def _on_canvas_configure(self, event):
-        # Update the scrollregion
         self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
-        # Resize the inner frame to match the canvas width
         self.main_canvas.itemconfig(self.canvas_window_id, width=event.width)
 
     def _on_mousewheel(self, event):
         self.main_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
+    def paste_image(self, event=None):
+        """Handles pasting an image from the clipboard."""
+        try:
+            clip_data = ImageGrab.grabclipboard()
+            
+            # The clipboard might contain raw image data or a list of file paths depending on OS
+            if isinstance(clip_data, Image.Image):
+                self.file_path = None # No physical file path for pasted images
+                self.original_image = clip_data.convert("RGBA")
+                
+                # Update UI
+                self._update_preview("Pasted Image")
+                
+                # Set a default base name for pasted images
+                self.ent_basename.delete(0, tk.END)
+                self.ent_basename.insert(0, "pasted_image")
+                
+            elif isinstance(clip_data, list) and len(clip_data) > 0:
+                # If they copied a file from their file explorer
+                path = clip_data[0]
+                self._load_from_path(path)
+            else:
+                self.status_var.set("No image found in clipboard.")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to paste image:\n{e}")
+
     def load_image(self):
+        """Handles loading an image from a file dialog."""
         file_types = [("Image files", "*.jpg *.jpeg *.png *.bmp *.tiff")]
         path = filedialog.askopenfilename(title="Select an Image", filetypes=file_types)
-        
         if path:
-            self.file_path = path
-            try:
-                # CRITICAL CHANGE: Use RGBA to preserve transparency
-                self.original_image = Image.open(path).convert("RGBA")
-                
-                # Display preview (thumbnail)
-                preview_img = self.original_image.copy()
-                preview_img.thumbnail((400, 300))
-                self.display_image = ImageTk.PhotoImage(preview_img)
-                
-                # Clear text placeholder and add image
-                self.lbl_preview.place_forget()
-                # Update to use preview_canvas
-                self.preview_canvas.create_image(200, 150, image=self.display_image, anchor="center")
-                
-                self.btn_process.config(state="normal")
-                self.status_var.set(f"Loaded: {os.path.basename(path)}")
-                
-                # Pre-fill dimensions
-                self.ent_width.config(state="normal")
-                self.ent_height.config(state="normal")
-                self.ent_width.delete(0, tk.END)
-                self.ent_height.delete(0, tk.END)
-                self.ent_width.insert(0, self.original_image.width)
-                self.ent_height.insert(0, self.original_image.height)
-                if not self.resize_var.get():
-                    self.ent_width.config(state="disabled")
-                    self.ent_height.config(state="disabled")
+            self._load_from_path(path)
 
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to load image:\n{e}")
+    def _load_from_path(self, path):
+        """Helper to load image from a specific file path."""
+        self.file_path = path
+        try:
+            self.original_image = Image.open(path).convert("RGBA")
+            filename = os.path.basename(path)
+            
+            # Update UI
+            self._update_preview(f"Loaded: {filename}")
+            
+            # Pre-fill base name entry with the file's name
+            self.ent_basename.delete(0, tk.END)
+            self.ent_basename.insert(0, os.path.splitext(filename)[0])
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load image:\n{e}")
+
+    def _update_preview(self, status_message):
+        """Updates the canvas preview and dimensions inputs."""
+        # Display preview (thumbnail)
+        preview_img = self.original_image.copy()
+        preview_img.thumbnail((400, 300))
+        self.display_image = ImageTk.PhotoImage(preview_img)
+        
+        # Clear text placeholder and add image
+        self.lbl_preview.place_forget()
+        self.preview_canvas.delete("all") # Clear previous images if any
+        self.preview_canvas.create_image(200, 150, image=self.display_image, anchor="center")
+        
+        self.btn_process.config(state="normal")
+        self.status_var.set(status_message)
+        
+        # Pre-fill dimensions
+        self.ent_width.config(state="normal")
+        self.ent_height.config(state="normal")
+        self.ent_width.delete(0, tk.END)
+        self.ent_height.delete(0, tk.END)
+        self.ent_width.insert(0, self.original_image.width)
+        self.ent_height.insert(0, self.original_image.height)
+        if not self.resize_var.get():
+            self.ent_width.config(state="disabled")
+            self.ent_height.config(state="disabled")
 
     def update_slider_label(self, val):
         self.lbl_percent.config(text=f"Pixels to Change: {int(float(val))}")
@@ -205,7 +254,7 @@ class ImageModifierApp:
 
     def process_image(self):
         if not self.original_image:
-            messagebox.showwarning("Warning", "Please load an image first.")
+            messagebox.showwarning("Warning", "Please load or paste an image first.")
             return
 
         try:
@@ -217,6 +266,11 @@ class ImageModifierApp:
             self.status_var.set("Error: Invalid number of copies")
             return
         
+        # Determine the base filename from the entry (fallback if empty)
+        base_filename = self.ent_basename.get().strip()
+        if not base_filename:
+            base_filename = "AnnaSlipper_Img"
+
         # Determine the target save directory (Downloads/annaslipper)
         downloads_dir = os.path.join(os.path.expanduser('~'), 'Downloads')
         save_dir = os.path.join(downloads_dir, 'annaslipper')
@@ -227,9 +281,6 @@ class ImageModifierApp:
             messagebox.showerror("Error", f"Failed to create directory '{save_dir}':\n{e}")
             self.status_var.set("Error: Directory creation failed")
             return
-
-        base_filename = os.path.splitext(os.path.basename(self.file_path))[0]
-        
         
         # --- Start Batch Processing Loop ---
         for i in range(1, num_copies + 1):
@@ -245,7 +296,6 @@ class ImageModifierApp:
             valid_coords = None
             
             if self.exclude_transparency_var.get():
-                # Alpha is index 3. We consider alpha > tolerance as not transparent.
                 tolerance = int(self.slider_tolerance.get())
                 valid_coords = [(x, y) for x in range(width) for y in range(height) if pixels[x, y][3] > tolerance]
                 total_pixels = len(valid_coords)
@@ -266,7 +316,6 @@ class ImageModifierApp:
                 else:
                      coords = random.sample(valid_coords, target_count)
             else:
-                # Standard behavior (includes transparent pixels)
                 if self.modify_all_var.get() or target_count > (total_pixels * 0.8):
                     coords = [(x, y) for x in range(width) for y in range(height)]
                     if not self.modify_all_var.get():
@@ -281,22 +330,15 @@ class ImageModifierApp:
 
             # 4. Modify Pixels (LSB Modification)
             def tweak(val):
-                # Change the value by -1 or 1 (LSB modification)
                 change = random.choice([-1, 1])
                 new_val = val + change
-                # Ensure we don't go out of RGB bounds (0-255)
                 return max(0, min(255, new_val))
 
             for x, y in coords:
-                # CRITICAL CHANGE: Get R, G, B, and Alpha (a)
                 r, g, b, a = pixels[x, y]
-                
-                # Apply the tweak ONLY to the color channels (R, G, B)
                 new_r = tweak(r)
                 new_g = tweak(g)
                 new_b = tweak(b)
-                
-                # Keep the original alpha channel (a) unchanged
                 pixels[x, y] = (new_r, new_g, new_b, a)
 
             # 5. Resize if requested
@@ -313,7 +355,6 @@ class ImageModifierApp:
             # 6. Save the modified image
             save_path = os.path.join(save_dir, f"{base_filename}_{i:01d}.png")
             try:
-                # PNG is required to save the alpha channel/transparency
                 img.save(save_path, format='PNG')
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save image {i}:\n{e}")
