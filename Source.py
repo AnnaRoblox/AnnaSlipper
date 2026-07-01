@@ -18,6 +18,7 @@ class ImageModifierApp:
         self.resize_var = tk.BooleanVar()
         self.modify_all_var = tk.BooleanVar()
         self.exclude_transparency_var = tk.BooleanVar()
+        self.remove_pixel_var = tk.BooleanVar()
 
         # Keyboard Bindings for Pasting
         self.root.bind("<Control-v>", self.paste_image)
@@ -80,7 +81,6 @@ class ImageModifierApp:
         # Slider for percentage
         self.lbl_percent = tk.Label(frame_controls, text="Pixels to Change: 50%")
         self.lbl_percent.grid(row=0, column=0, columnspan=2, sticky="w")
-
         self.slider = ttk.Scale(frame_controls, from_=1, to=100, orient="horizontal", command=self.update_slider_label)
         self.slider.set(50)
         self.slider.grid(row=1, column=0, columnspan=2, sticky="ew", pady=5)
@@ -103,21 +103,25 @@ class ImageModifierApp:
         self.slider_tolerance.set(0)
         self.slider_tolerance.grid(row=5, column=0, columnspan=2, sticky="ew", padx=20, pady=5)
 
+        # Checkbox for "Remove 1 Random Pixel"
+        self.chk_remove_pixel = tk.Checkbutton(frame_controls, text="Remove 1 Random Pixel", 
+                                               variable=self.remove_pixel_var, command=self.toggle_remove_pixel)
+        self.chk_remove_pixel.grid(row=6, column=0, sticky="w")
+
         # Copies Input
-        tk.Label(frame_controls, text="Number of Copies:").grid(row=6, column=0, sticky="w", pady=5)
+        tk.Label(frame_controls, text="Number of Copies:").grid(row=7, column=0, sticky="w", pady=5)
         self.ent_copies = tk.Entry(frame_controls, width=10)
         self.ent_copies.insert(0, "1") # Default to 1 copy
-        self.ent_copies.grid(row=6, column=1, sticky="w", pady=5)
+        self.ent_copies.grid(row=7, column=1, sticky="w", pady=5)
 
         # Custom Output File Name Input
-        tk.Label(frame_controls, text="Output Base Name:").grid(row=7, column=0, sticky="w", pady=5)
+        tk.Label(frame_controls, text="Output Base Name:").grid(row=8, column=0, sticky="w", pady=5)
         self.ent_basename = tk.Entry(frame_controls, width=30)
-        self.ent_basename.grid(row=7, column=1, sticky="w", pady=5)
+        self.ent_basename.grid(row=8, column=1, sticky="w", pady=5)
 
         # 5. Resize Settings Frame
         frame_resize = tk.LabelFrame(self.scrollable_frame, text="Output Size (Optional)", padx=10, pady=10)
         frame_resize.pack(pady=10, fill="x", padx=20)
-
         self.chk_resize = tk.Checkbutton(frame_resize, text="Resize Output Image", 
                                          variable=self.resize_var, command=self.toggle_resize_inputs)
         self.chk_resize.grid(row=0, column=0, columnspan=4, sticky="w")
@@ -195,7 +199,6 @@ class ImageModifierApp:
             # Pre-fill base name entry with the file's name
             self.ent_basename.delete(0, tk.END)
             self.ent_basename.insert(0, os.path.splitext(filename)[0])
-
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load image:\n{e}")
 
@@ -226,7 +229,7 @@ class ImageModifierApp:
             self.ent_height.config(state="disabled")
 
     def update_slider_label(self, val):
-        self.lbl_percent.config(text=f"Pixels to Change: {int(float(val))}")
+        self.lbl_percent.config(text=f"Pixels to Change: {int(float(val))}%")
 
     def toggle_slider(self):
         if self.modify_all_var.get():
@@ -252,11 +255,40 @@ class ImageModifierApp:
             self.lbl_tolerance.config(state="disabled")
             self.slider_tolerance.state(["disabled"])
 
+    def toggle_remove_pixel(self):
+        if self.remove_pixel_var.get():
+            # Disable other modification controls
+            self.slider.state(["disabled"])
+            self.chk_all.config(state="disabled")
+            self.chk_transparency.config(state="disabled")
+            self.lbl_tolerance.config(state="disabled")
+            self.slider_tolerance.state(["disabled"])
+            self.lbl_percent.config(text="Pixels to Change: 1 (Random RGB, Alpha 0)")
+        else:
+            # Re-enable controls based on other checkbuttons
+            self.chk_all.config(state="normal")
+            self.chk_transparency.config(state="normal")
+            
+            # Reset percent slider state
+            if self.modify_all_var.get():
+                self.slider.state(["disabled"])
+                self.lbl_percent.config(text="Pixels to Change: 100%")
+            else:
+                self.slider.state(["!disabled"])
+                self.update_slider_label(self.slider.get())
+                
+            # Reset transparency state
+            if self.exclude_transparency_var.get():
+                self.lbl_tolerance.config(state="normal")
+                self.slider_tolerance.state(["!disabled"])
+            else:
+                self.lbl_tolerance.config(state="disabled")
+                self.slider_tolerance.state(["disabled"])
+
     def process_image(self):
         if not self.original_image:
             messagebox.showwarning("Warning", "Please load or paste an image first.")
             return
-
         try:
             num_copies = int(self.ent_copies.get())
             if num_copies <= 0:
@@ -270,7 +302,6 @@ class ImageModifierApp:
         base_filename = self.ent_basename.get().strip()
         if not base_filename:
             base_filename = "AnnaSlipper_Img"
-
         # Determine the target save directory (Downloads/annaslipper)
         downloads_dir = os.path.join(os.path.expanduser('~'), 'Downloads')
         save_dir = os.path.join(downloads_dir, 'annaslipper')
@@ -291,55 +322,60 @@ class ImageModifierApp:
             img = self.original_image.copy()
             pixels = img.load()
             width, height = img.size
-
-            # 2. Identify eligible pixels & Calculate Count
-            valid_coords = None
             
-            if self.exclude_transparency_var.get():
-                tolerance = int(self.slider_tolerance.get())
-                valid_coords = [(x, y) for x in range(width) for y in range(height) if pixels[x, y][3] > tolerance]
-                total_pixels = len(valid_coords)
+            if self.remove_pixel_var.get():
+                # Choose only 1 pixel, set it to random rgb at 0 alpha
+                x = random.randint(0, width - 1)
+                y = random.randint(0, height - 1)
+                r_rand = random.randint(0, 255)
+                g_rand = random.randint(0, 255)
+                b_rand = random.randint(0, 255)
+                pixels[x, y] = (r_rand, g_rand, b_rand, 0)
             else:
-                total_pixels = width * height
-
-            if self.modify_all_var.get():
-                target_count = total_pixels
-            else:
-                percent = self.slider.get() / 100
-                target_count = int(total_pixels * percent)
-
-            # 3. Generate coordinates to modify
-            coords = []
-            if self.exclude_transparency_var.get():
-                if target_count >= total_pixels:
-                     coords = valid_coords
+                # 2. Identify eligible pixels & Calculate Count
+                valid_coords = None
+                
+                if self.exclude_transparency_var.get():
+                    tolerance = int(self.slider_tolerance.get())
+                    valid_coords = [(x, y) for x in range(width) for y in range(height) if pixels[x, y][3] > tolerance]
+                    total_pixels = len(valid_coords)
                 else:
-                     coords = random.sample(valid_coords, target_count)
-            else:
-                if self.modify_all_var.get() or target_count > (total_pixels * 0.8):
-                    coords = [(x, y) for x in range(width) for y in range(height)]
-                    if not self.modify_all_var.get():
-                        random.shuffle(coords)
-                        coords = coords[:target_count]
+                    total_pixels = width * height
+                if self.modify_all_var.get():
+                    target_count = total_pixels
                 else:
-                    coords = set()
-                    while len(coords) < target_count:
-                        x = random.randint(0, width - 1)
-                        y = random.randint(0, height - 1)
-                        coords.add((x, y))
-
-            # 4. Modify Pixels (LSB Modification)
-            def tweak(val):
-                change = random.choice([-1, 1])
-                new_val = val + change
-                return max(0, min(255, new_val))
-
-            for x, y in coords:
-                r, g, b, a = pixels[x, y]
-                new_r = tweak(r)
-                new_g = tweak(g)
-                new_b = tweak(b)
-                pixels[x, y] = (new_r, new_g, new_b, a)
+                    percent = self.slider.get() / 100
+                    target_count = int(total_pixels * percent)
+                # 3. Generate coordinates to modify
+                coords = []
+                if self.exclude_transparency_var.get():
+                    if target_count >= total_pixels:
+                         coords = valid_coords
+                    else:
+                         coords = random.sample(valid_coords, target_count)
+                else:
+                    if self.modify_all_var.get() or target_count > (total_pixels * 0.8):
+                        coords = [(x, y) for x in range(width) for y in range(height)]
+                        if not self.modify_all_var.get():
+                            random.shuffle(coords)
+                            coords = coords[:target_count]
+                    else:
+                        coords = set()
+                        while len(coords) < target_count:
+                            x = random.randint(0, width - 1)
+                            y = random.randint(0, height - 1)
+                            coords.add((x, y))
+                # 4. Modify Pixels (LSB Modification)
+                def tweak(val):
+                    change = random.choice([-1, 1])
+                    new_val = val + change
+                    return max(0, min(255, new_val))
+                for x, y in coords:
+                    r, g, b, a = pixels[x, y]
+                    new_r = tweak(r)
+                    new_g = tweak(g)
+                    new_b = tweak(b)
+                    pixels[x, y] = (new_r, new_g, new_b, a)
 
             # 5. Resize if requested
             if self.resize_var.get():
@@ -360,7 +396,6 @@ class ImageModifierApp:
                 messagebox.showerror("Error", f"Failed to save image {i}:\n{e}")
                 self.status_var.set("Error: Save failed")
                 return
-
         # --- Batch Processing Complete ---
         self.status_var.set(f"Done! {num_copies} images saved successfully.")
         messagebox.showinfo("Success", f"All {num_copies} copies saved to:\n{save_dir}")
