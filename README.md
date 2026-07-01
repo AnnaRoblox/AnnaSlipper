@@ -11,3 +11,4 @@ AnnaSlipper is a free python based slipper for roblox allowing you to create uni
 * out put base name: lets you change the name
 * when enabled you can change the size of your output image
 * paste support
+* toggle for 1 pixel removal this will make it remove a random pixel with the pixel color randomized enabling this disables the normal slipmode
